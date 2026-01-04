@@ -40,7 +40,7 @@ export default function VisitForm({ isOpen, onClose, onSave, currentUser, initia
         }
     }, [isOpen, initialLocation]);
 
-    // Duplicate Check Effect
+    // Duplicate Check Effect - checks both name AND address/location
     useEffect(() => {
         if (!shopName || shopName.length < 2) {
             setDuplicateVisit(null);
@@ -58,18 +58,49 @@ export default function VisitForm({ isOpen, onClose, onSave, currentUser, initia
         };
 
         const targetName = normalize(shopName);
+        const targetAddress = normalize(selectedAddress);
 
-        // Debug logging to help identify why it might not be matching
-        // console.log('Checking duplicate for:', targetName, 'in visits count:', visits.length);
-
+        // Find duplicate: same name AND (same address OR same location)
         const found = visits.find(v => {
             const vName = normalize(v.shopname || v.shopName);
-            // console.log('Comparing against:', vName);
-            return vName === targetName;
+
+            // Name must match first
+            if (vName !== targetName) return false;
+
+            // Check location coordinates if both exist
+            if (activeLocation && v.lat && v.lng) {
+                const latDiff = Math.abs(parseFloat(v.lat) - parseFloat(activeLocation.lat));
+                const lngDiff = Math.abs(parseFloat(v.lng) - parseFloat(activeLocation.lng));
+                // If more than ~100m away (roughly 0.001 degrees), definitely NOT a duplicate
+                if (latDiff > 0.001 || lngDiff > 0.001) {
+                    return false; // Different location = different store
+                }
+                // If within 100m, it's the same location = duplicate
+                return true;
+            }
+
+            // If no coordinate data, check address from notes
+            if (selectedAddress && selectedAddress.length > 5 && (v.note || v.notes)) {
+                const vNote = String(v.note || v.notes || '');
+                const addressMatch = vNote.match(/\(住所:\s*([^)]+)\)/);
+                if (addressMatch) {
+                    const vAddress = normalize(addressMatch[1]);
+                    // If addresses match, it's a duplicate
+                    if (vAddress === targetAddress) {
+                        return true;
+                    }
+                    // If addresses are clearly different, NOT a duplicate
+                    return false;
+                }
+            }
+
+            // If we can't determine location/address difference, be conservative
+            // Only flag as duplicate if user hasn't selected any location yet
+            return !selectedAddress && !activeLocation;
         });
 
         setDuplicateVisit(found || null);
-    }, [shopName, visits]);
+    }, [shopName, selectedAddress, activeLocation, visits]);
 
     // Debounced Search Effect
     useEffect(() => {
@@ -153,7 +184,6 @@ export default function VisitForm({ isOpen, onClose, onSave, currentUser, initia
             status,
             note: (note ? note + '\n' : '') + (selectedAddress ? `(住所: ${selectedAddress})` : ''), // Append address to note
             city,
-            castname: currentUser.name || currentUser.id,
             castname: currentUser.name || currentUser.id,
             castName: currentUser.name || currentUser.id,
             lat: activeLocation ? parseFloat(activeLocation.lat) : 0,
@@ -253,16 +283,31 @@ export default function VisitForm({ isOpen, onClose, onSave, currentUser, initia
                             />
                             <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 10 }}>
                                 {isSearching ? (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255,255,255,0.9)', padding: '2px 4px', borderRadius: '4px' }}>
-                                        <Loader className="spin" size={16} />
-                                        <span style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', color: 'var(--primary)' }}>検索中...</span>
-                                        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`}</style>
-                                    </div>
+                                    <Loader className="spin" size={18} style={{ color: 'var(--primary)' }} />
                                 ) : (
                                     <Search size={18} />
                                 )}
+                                <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`}</style>
                             </div>
                         </div>
+
+                        {/* Search Status Message - More Prominent */}
+                        {isSearching && shopName && !manualMode && (
+                            <div style={{
+                                marginTop: '0.5rem',
+                                padding: '0.5rem',
+                                background: 'rgba(59, 130, 246, 0.1)',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                color: 'var(--primary)',
+                                fontSize: '0.85rem'
+                            }}>
+                                <Loader className="spin" size={16} />
+                                <span>候補を検索しています...</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* Selected Address Display */}
